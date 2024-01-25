@@ -1,0 +1,41 @@
+[build-system]
+requires = [
+    "setuptools>=61.0",
+    "setuptools-scm>=8.0"
+]
+build-backend = "setuptools.build_meta"
+
+
+[project]
+name = "lt-gee-py"
+description = "Python interface to the Google Earth Engine implementation of the LandTrendr spectral-temporal segmentation algorithm."
+authors = [
+    {name = "Myscon Truong", email = "myscontruong@gmail.com"},
+    {name = "Robert Kennedy", email = "robert.kennedy@oregonstate.edu"},
+    {name = "Peter Clary", email = "clarype@oregonstate.edu"}
+]
+keywords = ["Google Earth Engine", "LandTrendr", "GEE", "spectral-temporal segmentation", "time series analysis", "land cover change detection"]
+license = {file = "LICENSE"}
+dynamic = ["version"]
+readme = "README.md"
+requires-python = ">= 3.10"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: Apache 2.0 License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: GIS",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+repository = "https://github.com/eMapR/lt-gee-py"
+issue_tracker = "https://github.com/eMapR/lt-gee-py/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools_scm]
