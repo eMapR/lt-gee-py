@@ -15,7 +15,7 @@ To get started with contributing, please follow these steps:
 
 1. Fork the repository.
 2. Clone the forked repository to your local machine.
-3. Install the necessary dependencies.
+3. Install the package (using the -e editable flag) and necessary dependencies.
 4. Make your changes or additions.
 5. Test your changes to ensure they work as expected.
 6. Commit your changes with descriptive commit messages.

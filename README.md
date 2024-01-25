@@ -17,13 +17,16 @@ The **LandTrendr** class from **lt-gee-py** is a light wrapper around the Google
 conda install -c conda-forge earthengine-api
 ```
 
-- Install package
+- Install lt-gee-py package
 
 ```
 pip install lt-gee-py
 ```
 
-- Authenticate on Google Earth Engine [Earth Engine Authentication and Initialization] (https://developers.google.com/earth-engine/guides/auth)
+### Authenticate on Google Earth Engine
+
+- [Earth Engine Authentication and Initialization](https://developers.google.com/earth-engine/guides/auth)
+
 ```
 earthengine authenticate # There are several alternatives for this. See link above.
 ```
@@ -65,27 +68,37 @@ lt = LandTrendr(**lt_params)
 lt_data = lt.data
 ```
 
-## Features
+## Features / Methods
 
-**run**: Initiates the LandTrendr algorithm on Google's servers using the specified run_params and generates an image. This is a wrapper around build_sr_collection and build_lt_collection functions. The array image result is saved to LandTrendr.data as an ee.Image.
+- **run**:
+    Initiates the LandTrendr algorithm on Google's servers using the specified run_params and generates an image. This is a wrapper around build_sr_collection and build_lt_collection functions. The array image result is saved to LandTrendr.data as an ee.Image.
 
-**build_sr_collection**: Builds an annual cloud and cloud shadow masked medoid composite of Landsat surface reflectance TM-equivalent bands 1,2,3,4,5,7. This collection can be useful outside of use by LandTrendr, but is also the base for creating the input collection for LandTrendr.
+- **build_sr_collection**:
+    Builds an annual cloud and cloud shadow masked medoid composite of Landsat surface reflectance TM-equivalent bands 1,2,3,4,5,7. This collection can be useful outside of use by LandTrendr, but is also the base for creating the input collection for LandTrendr.
 
-**build_lt_collection**: Builds a collection as input to LandTrendr. It will prepare a collection where the first band is the spectral index to base temporal segmentation on, and the subsequent bands will be fitted to segmentation structure of the segmentation index.
+- **build_lt_collection**:
+    Builds a collection as input to LandTrendr. It will prepare a collection where the first band is the spectral index to base temporal segmentation on, and the subsequent bands will be fitted to segmentation structure of the segmentation index.
 
-**get_change_map**: Generates a set of map layers describing either vegetation loss or gain events with attributes including: year of change detection, spectral delta, duration of change event, pre-change event spectral value, and the rate of spectral change. Each attribute is a band of an ee.Image.
+- **get_change_map**:
+    Generates a set of map layers describing either vegetation loss or gain events with attributes including: year of change detection, spectral delta, duration of change event, pre-change event spectral value, and the rate of spectral change. Each attribute is a band of an ee.Image.
 
-**get_fitted_data**: Generates an annual band stack for a given index provided as ftvList indices to either buildLTcollection or runLT. It flattens the FTV array format to a band per year for a given FTV index.
+- **get_fitted_data**:
+    Generates an annual band stack for a given index provided as ftvList indices to either buildLTcollection or runLT. It flattens the FTV array format to a band per year for a given FTV index.
 
-**get_segment_data**: Generates an array of information about spectral-temporal segments from the breakpoint vertices identified by LandTrendr. Returns either all spectral-temporal segments, or just vegetation loss segments, or just vegetation growth segments.
+- **get_segment_data**:
+    Generates an array of information about spectral-temporal segments from the breakpoint vertices identified by LandTrendr. Returns either all spectral-temporal segments, or just vegetation loss segments, or just vegetation growth segments.
 
-**get_segment_count**: Given a segment data array produced by the getSegmentData function, this function returns the number of segments identified by LandTrendr as an ee.Image.
+- **get_segment_count**:
+    Given a segment data array produced by the getSegmentData function, this function returns the number of segments identified by LandTrendr as an ee.Image.
 
-**collection_to_band_stack**: Transforms an image collection into an image stack where each band of each image in the collection is concatenated as a band into a single image. Useful for mapping a function over a collection, like transforming surface reflectance to NDVI, and then transforming the resulting collection into a band sequential time series image stack.
+- **collection_to_band_stack**:
+    Transforms an image collection into an image stack where each band of each image in the collection is concatenated as a band into a single image. Useful for mapping a function over a collection, like transforming surface reflectance to NDVI, and then transforming the resulting collection into a band sequential time series image stack.
 
-**transform_sr_collection**: Transforms the images within an annual surface reflectance collection built by buildSRcollection to a list of provided indices or bands.
+- **transform_sr_collection**:
+    Transforms the images within an annual surface reflectance collection built by buildSRcollection to a list of provided indices or bands.
 
-**get_fitted_rgb_col**: Creates a collection of RGB visualization images from three FTV bands resulting from a call to LandTrendr segmentation. This is useful for creating thumbnails, filmstrips, and GIFs.
+- **get_fitted_rgb_col**:
+    Creates a collection of RGB visualization images from three FTV bands resulting from a call to LandTrendr segmentation. This is useful for creating thumbnails, filmstrips, and GIFs.
 
 ## [Manuscript](http://www.mdpi.com/2072-4292/10/5/691) 
 
