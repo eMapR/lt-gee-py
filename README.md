@@ -28,6 +28,7 @@ pip install lt-gee-py
 ```python
 import ee
 from lt-gee-py import LandTrendr
+
 # Initialize access to Google's EE servers
 project_name = "my_project_name
 ee.Initialize(project_name)

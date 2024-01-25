@@ -229,37 +229,26 @@ class LandTrendr:
         Args:
             change_params (dict): A dictionary containing the parameters for change detection.
                 {
-                    'delta':    'loss' | 'gain' | 'all',
-                    'sort':     'greatest' | 'least' | 'newest' | 'oldest' | 'fastest' | 'slowest',
-                    'years':    {'start': int, 'end': int},
-                    'mag':      {'value': int, 'operator': '>' | '<' , 'dsnr': bool},
-                    'dur':      {'value': int, 'operator': '>' | '<'},
-                    'preval':   {'value': int, 'operator': '>' | '<'},
-                    'mmu':      {'value': int}
+                    'delta':                'loss' | 'gain' | 'all',
+                    'sort' (optional):      'greatest' | 'least' | 'newest' | 'oldest' | 'fastest' | 'slowest',
+                    'years' (optional):     {'start': int, 'end': int},
+                    'mag' (optional):       {'value': int, 'operator': '>' | '<' , 'dsnr': bool},
+                    'dur' (optional):       {'value': int, 'operator': '>' | '<'},
+                    'preval' (optional):    {'value': int, 'operator': '>' | '<'},
+                    'mmu' (optional):       {'value': int > 1}
                 }
 
         Returns:
             ee.Image: The change map image.
         """
-        assert change_params['delta'] in \
-            ['loss', 'gain', 'all'], \
-            "delta must be one of 'loss', 'gain', or 'all'"
-        assert change_params['sort'] in \
-            ['greatest', 'least', 'newest', 'oldest', 'fastest', 'slowest'], \
-            "sort must be one of 'greatest', 'least', 'newest', 'oldest', 'fastest', or 'slowest'"
-        assert change_params['mag']['operator'] in \
-            ['>', '<'], "mag operator must be one of '>' or '<'"
-        assert change_params['dur']['operator'] in \
-            ['>', '<'], "dur operator must be one of '>' or '<'"
-        assert change_params['preval']['operator'] in \
-            ['>', '<'], "preval operator must be one of '>' or '<'"
-        assert change_params['mmu']['value'] > 1, "mmu value must be greater than 1"
-
         # Backward compatibility for dsnr
         if 'dsnr' not in change_params['mag']:
             change_params['mag']['dsnr'] = False
 
         # Get the segment info
+        assert change_params['delta'] in \
+            ['loss', 'gain', 'all'], \
+            "delta must be one of 'loss', 'gain', or 'all'"
         seg_info = self.get_segment_data(
             self.index, change_params['delta'])
         change_mask = seg_info.arraySlice(0, 4, 5).gt(0)
@@ -268,13 +257,15 @@ class LandTrendr:
         # Filter by year
         if 'years' in change_params:
             yod_arr = seg_info.arraySlice(0, 0, 1).add(1)
-            year_mask = yod_arr.gte(change_params['years']['start']).And(
+            year_mask = yod_arr.gte(ee.Number(change_params['years']['start'])).And(
                 yod_arr.lte(change_params['years']['end']))
             seg_info = seg_info.arrayMask(year_mask)
 
         # Filter by mag
         mag_band = {'axis': 0, 'start': 4, 'end': 5}
         if 'mag' in change_params:
+            assert change_params['mag']['operator'] in \
+                ['>', '<'], "mag operator must be one of '>' or '<'"
             if change_params['mag']['dsnr']:
                 mag_band = {'axis': 0, 'start': 7, 'end': None}
             match change_params['mag']['operator']:
@@ -291,6 +282,8 @@ class LandTrendr:
 
         # Filter by dur
         if 'dur' in change_params:
+            assert change_params['dur']['operator'] in \
+                ['>', '<'], "dur operator must be one of '>' or '<'"
             dur_band = {'axis': 0, 'start': 5, 'end': 6}
             match change_params['dur']['operator']:
                 case '<':
@@ -306,6 +299,8 @@ class LandTrendr:
 
         # Filter by preval
         if 'preval' in change_params:
+            assert change_params['preval']['operator'] in \
+                ['>', '<'], "preval operator must be one of '>' or '<'"
             preval_band = {'axis': 0, 'start': 2, 'end': 3}
             match change_params['preval']['operator']:
                 case '<':
@@ -321,6 +316,9 @@ class LandTrendr:
 
         # Sort by dist type
         if 'sort' in change_params:
+            assert change_params['sort'] in \
+                ['greatest', 'least', 'newest', 'oldest', 'fastest', 'slowest'], \
+                "sort must be one of 'greatest', 'least', 'newest', 'oldest', 'fastest', or 'slowest'"
             match change_params['sort']:
                 case 'greatest':
                     sort_by_this = seg_info.arraySlice(0, 4, 5).multiply(-1)
@@ -335,30 +333,30 @@ class LandTrendr:
                 case 'slowest':
                     sort_by_this = seg_info.arraySlice(0, 5, 6).multiply(-1)
             seg_info = seg_info.arraySort(sort_by_this)
+            
         change_array = seg_info.arraySlice(1, 0, 1)
 
         # Make an image from the array of attributes for the change of interest
         arr_row_names = [['startYear', 'endYear', 'preval',
                           'postval', 'mag', 'dur', 'rate', 'dsnr']]
-        change_image = change_array.arrayProject(
-            [0]).arrayFlatten(arr_row_names)
-        yod = change_image.select('startYear').add(1).toInt16().rename('yod')
-        change_image = change_image.addBands(yod).select(
+        change_img = change_array\
+            .arrayProject([0]).arrayFlatten(arr_row_names)
+        yod = change_img.select('startYear').add(1).toInt16().rename('yod')
+        change_img = change_img.addBands(yod).select(
             ['yod', 'mag', 'dur', 'preval', 'rate', 'dsnr'])
 
         # Mask for change/no change
-        change_image = change_image.updateMask(
-            change_image.select('mag').gt(0))
+        change_img = change_img\
+            .updateMask(change_img.select('mag').gt(0))
 
         # Filter by MMU on year of change detection
         if 'mmu' in change_params:
-            mmu_mask = change_image\
-                .select('yod')\
-                .connectedPixelCount(change_params['mmu']['value'], True)\
-                .gte(change_params['mmu']['value'])
-            change_image = change_image.updateMask(mmu_mask)
+            assert change_params['mmu']['value'] >= 1, "mmu value must be greater than 1"
+            mmu_lyr = change_img.select('yod')
+            mmu_mask = self._apply_mmu(mmu_lyr, change_params['mmu']['value'])
+            change_img = change_img.updateMask(mmu_mask)
 
-        return change_image
+        return change_img
 
     def get_segment_data(self, index, delta, options=None):
         """
@@ -560,10 +558,10 @@ class LandTrendr:
         """
         all_stack = self._calculate_index(img, self.index)
         for band in band_list:
-            band_image = self._calculate_index(img, band, False)
+            band_img = self._calculate_index(img, band, False)
             if prefix:
-                band_image = band_image.select([0], [prefix + '_' + band])
-            all_stack = all_stack.addBands(band_image).set(
+                band_img = band_img.select([0], [prefix + '_' + band])
+            all_stack = all_stack.addBands(band_img).set(
                 'system:time_start', img.get('system:time_start'))
         return all_stack
 
@@ -643,6 +641,14 @@ class LandTrendr:
 
     def _scale_unmask_image(self, img):
         return img.multiply(0.0000275).add(-0.2).multiply(10000).toUint16().unmask()
+
+    def _apply_mmu(self, img, mmu_value):
+        mmu_img = img.select([0])\
+            .gte(ee.Number(1))\
+            .selfMask()\
+            .connectedPixelCount()
+        min_area = mmu_img.gte(ee.Number(mmu_value)).selfMask()
+        return min_area.reproject(img.projection().atScale(30)).unmask()
 
     def _apply_masks(self, qa, dat):
         mask = ee.Image(1)

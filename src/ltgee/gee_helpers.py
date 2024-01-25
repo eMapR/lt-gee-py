@@ -69,8 +69,8 @@ def standardize_collection(collection):
     """
     mean = collection.reduce(ee.Reducer.mean())
     std_dev = collection.reduce(ee.Reducer.stdDev())
-    mean_adj = collection.map(lambda img: img.subtract(mean).set(
-        'system:time_start', img.get('system:time_start')))
+    mean_adj = collection.map(lambda img: img.subtract(mean)
+                              .set('system:time_start', img.get('system:time_start')))
     return mean_adj.map(lambda img: img.divide(std_dev).set('system:time_start', img.get('system:time_start')))
 
 
