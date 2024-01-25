@@ -4,9 +4,9 @@ from .gee_helpers import water_mask, forest_mask, calculate_median_diff, tc_tran
 
 class LandTrendr:
     """
-    ## Landtrendr class for performing landtrendr analysis using Google Earth Engine.
+    ### Landtrendr class for performing landtrendr analysis using Google Earth Engine.
 
-    ### Args:
+    #### Args:
     start_date (datetime):          The start date of the analysis.
     end_date (datetime):            The end date of the analysis.
     aoi (ee.Geometry):              The area of interest for the analysis.
@@ -150,10 +150,7 @@ class LandTrendr:
 
     def run(self, debug=False):
         """
-        Build SR collection and time series collection and run the LandTrendr algorithm on the given parameters.
-
-        Returns:
-            The result of the LandTrendr algorithm.
+        Initiates the LandTrendr algorithm on Google's servers using the specified run_params and generates an image. This is a wrapper around build_sr_collection and build_lt_collection functions. The array image result is saved to LandTrendr.data as an ee.Image.
         """
         self.data = None
         self.sr_collection = None
@@ -169,10 +166,11 @@ class LandTrendr:
 
     def build_sr_collection(self, debug=False):
         """
-        Builds a spectral reflectance (SR) collection by creating a mosaic of images for each year within the specified date range.
+        Builds an annual cloud and cloud shadow masked medoid composite of Landsat surface reflectance TM-equivalent bands 1,2,3,4,5,7. 
+        This collection can be useful outside of use by LandTrendr, but is also the base for creating the input collection for LandTrendr.
 
         Returns:
-        ee.ImageCollection: The spectral reflectance collection.
+            ee.ImageCollection: A collection where each image represents the medoid of observations per TM-equivalent surface reflectance bands 1-5 and 7, for a given year. There will be as many images as there are years in the range inclusive of the start year and end year. If a given year does not exist for the range, then a masked band will act as a filler. Similarly, if all observations of a given pixel within a year are masked because of inclusion in the maskThese list, the pixel will be masked.
         """
         dummy_collection = ee.ImageCollection(
             [ee.Image([0, 0, 0, 0, 0, 0]).mask(ee.Image(0))])
@@ -181,13 +179,14 @@ class LandTrendr:
 
     def build_lt_collection(self, collection):
         """
-        Builds a LandTrendr time series collection based on the specified index.
+        Builds a collection as input to LandTrendr. It will prepare a collection where the first band is the spectral index to base temporal segmentation on, and the subsequent bands will be fitted to segmentation structure of the segmentation index.
 
         Args:
             collection (ee.ImageCollection): The input annual image collection.
 
         Returns:
-            ee.ImageCollection: The annual LandTrendr collection.
+            ee.ImageCollection: The annual LandTrendr collection where each image represents an assemblage of bands or indices to be segmented and fitted by LandTrendr. There will be as many images as there are years in the range inclusive of the start year and end year. If a given year does not exist for the range, then a masked band will act as a filler. Similarly, if all observations of a given pixel within a year are masked because of cloud, cloud shadow, or snow, the pixel will be masked. The first band per image will be whatever spectral representation is defined by the index parameter - it will be oriented so that vegetation loss results in a positive spectral delta. Any following bands will be defined by the indices provided in the ftvList parameter, in the same order, and unmodified with regard to spectral delta orientation.
+
         """
 
         match self.index:
@@ -226,6 +225,8 @@ class LandTrendr:
 
     def get_change_map(self, change_params):
         """
+        Generates a set of map layers describing either vegetation loss or gain events with attributes including: year of change detection, spectral delta, duration of change event, pre-change event spectral value, and the rate of spectral change. Each attribute is a band of an ee.Image.
+        
         Args:
             change_params (dict): A dictionary containing the parameters for change detection.
                 {
@@ -239,7 +240,13 @@ class LandTrendr:
                 }
 
         Returns:
-            ee.Image: The change map image.
+            ee.Image: An image with bands for attributes of change events meeting filtering criteria including:
+                Year of change event detection: 'yod' (year)
+                Magnitude of change event: 'mag' (absolute value of change event spectral delta)
+                Duration of change event: 'dur' (years)
+                Pre-change event spectral value: 'preval' (spectral value)
+                Rate of spectral change for event 'rate' (mag/dur)
+                DSNR 'dsnr' (mag/fit rmse) multipled by 100 to retain two decimal precision with Int16 data.
         """
         # Backward compatibility for dsnr
         if 'dsnr' not in change_params['mag']:
@@ -333,11 +340,11 @@ class LandTrendr:
                 case 'slowest':
                     sort_by_this = seg_info.arraySlice(0, 5, 6).multiply(-1)
             seg_info = seg_info.arraySort(sort_by_this)
-            
+
         change_array = seg_info.arraySlice(1, 0, 1)
 
         # Make an image from the array of attributes for the change of interest
-        arr_row_names = [['startYear', 'endYear', 'preval',
+        arr_row_names = [['startYear', 'end year', 'preval',
                           'postval', 'mag', 'dur', 'rate', 'dsnr']]
         change_img = change_array\
             .arrayProject([0]).arrayFlatten(arr_row_names)
@@ -360,7 +367,7 @@ class LandTrendr:
 
     def get_segment_data(self, index, delta, options=None):
         """
-        Retrieves segment data based on the specified index and delta.
+        Generates an array of information about spectral-temporal segments from the breakpoint vertices identified by LandTrendr. Returns either all spectral-temporal segments, or just vegetation loss segments, or just vegetation growth segments.
 
         Args:
             index (int): The index of the segment.
@@ -368,7 +375,15 @@ class LandTrendr:
             options (bool, optional): Additional options for the segment data retrieval. Defaults to None.
 
         Returns:
-            ee.Image: An image array with dimensions: 8 (rows) x nSegments (cols).
+            ee.Image: An image array with dimensions: 8 (rows) x nSegments (cols). Each row describes an attribute of the segments identified by LandTrendr per pixel time series. Each column represents a segment in the time series per pixel ordered from earliest to latest in the series.
+                Row 1: segment start year
+                Row 2: segment end year
+                Row 3: segment start value
+                Row 4: segment end value
+                Row 5: segment spectral delta
+                Row 6: segment duration
+                Row 7: segment rate of spectral change
+                Row 8: segment DSNR*
         """
 
         # Deal with options
@@ -440,40 +455,41 @@ class LandTrendr:
                     .unmask(ee.Image(ee.Array([[-9999]]))) \
                     .toArray(0)
 
-    def getSegmentCount(segment_data):
+    def get_segment_count(segment_data):
         """
         Given a segment data array produced by the getSegmentData function, this function returns the number of segments identified by LandTrendr as an ee.Image.
+
         Args:
-            segment_data (ee.image): an image array returned from the getSegmentData function
+            segment_data (ee.Image): an image array returned from the get_segment_data function
 
         Returns:
-            ee.image: A single-band ee.Image describing the number of segments per pixel time series identified by LandTrendr.
+            ee.Image: A single-band ee.Image describing the number of segments per pixel time series identified by LandTrendr.
         """
         return segment_data.arrayLength(1).select([0], ['segCount']).toByte()
 
     def get_fitted_data(self, index):
         """
-        Retrieves the fitted data for a given index within a specified time range.
+        Generates an annual band stack for a given index provided as ftvList indices to either buildLTcollection or runLT. It flattens the FTV array format to a band per year for a given FTV index.
 
         Args:
             index (str): The index for which to retrieve the fitted data.
 
         Returns:
-            ee.Array: The fitted data for the specified index within the specified time range flattened.
+            ee.Image: An image representing fitted-to-vertex annual spectral data for whatever index was provided as the index parameter. There will be as many bands as there are years in the range inclusive of the start year and end year.
         """
         search = '.*' + index + '_fit'
         return self.data.select(search).arrayFlatten([[str(_) for _ in range(self.start_date.year, self.end_date.year + 1)]])
 
     def collection_to_band_stack(self, collection, mask_fill=0):
         """
-        Converts an Earth Engine image collection into a band stack.
-
+        Transforms an image collection into an image stack where each band of each image in the collection is concatenated as a band into a single image. Useful for mapping a function over a collection, like transforming surface reflectance to NDVI, and then transforming the resulting collection into a band sequential time series image stack.
+        
         Args:
             collection (ee.ImageCollection): The Earth Engine image collection to convert.
             mask_fill (int, optional): The value to fill masked pixels with. Default is 0.
 
         Returns:
-            ee.Image: The band stack image.
+            ee.Image: The band stack image representing a band sequential time series of image bands from each image in the given collection between the start year and end year. Note that masked values in the image collection will be filled with 0
 
         """
         unmasked_collection = collection.map(lambda img: img.unmask(mask_fill))
@@ -490,20 +506,20 @@ class LandTrendr:
 
     def transform_sr_collection(self, collection, band_list, prefix=None):
         """
-        Transforms the given spectral reflectance collection with the specified band list.
+        Transforms the images within an annual surface reflectance collection built by buildSRcollection to a list of provided indices or bands.
 
         Args:
-            collection (ee.ImageCollection): The spectral reflectance collection to transform.
+            collection (ee.ImageCollection): The surface reflectance collection to transform.
             band_list (list): The list of bands to transform the collection to.
 
         Returns:
-            ee.ImageCollection: The transformed spectral reflectance collection.
+            ee.ImageCollection: The transformed surface reflectance collection that includes one image per year based on an image collection built by buildSRcollection function transformed to the indices provided in the bandList parameter..
         """
         return collection.map(lambda img: self._make_default_composite(img, band_list, prefix))
 
     def get_fitted_rgb_col(self, bands, vis_params):
         """
-        Generates an RGB image collection with fitted data for the specified bands.
+        Creates a collection of RGB visualization images from three FTV bands resulting from a call to LandTrendr segmentation. This is useful for creating thumbnails, filmstrips, and GIFs.
 
         Args:
             lt (LandTrendr): The LandTrendr object.
@@ -511,7 +527,7 @@ class LandTrendr:
             vis_params (dict): Visualization parameters for the RGB image.
 
         Returns:
-            ee.ImageCollection: An image collection containing RGB images with fitted data.
+            ee.ImageCollection: An image collection with an RGB image for each year between and including the start year and end year.
         """
 
         r = self.get_fitted_data(bands[0])
