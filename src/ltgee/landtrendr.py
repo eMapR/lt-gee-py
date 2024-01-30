@@ -38,10 +38,10 @@ class LandTrendr:
         "maxSegments": 6,
         "spikeThreshold": 0.9,
         "vertexCountOvershoot":  3,
-        "preventOneYearRecovery":  True,
+        "preventOneYearRecovery":  False,
         "recoveryThreshold":  0.25,
-        "pvalThreshold":  0.25,
-        "bestModelProportion":  0.75,
+        "pvalThreshold":  0.1,
+        "bestModelProportion":  1.25,
         "minObservationsNeeded": 6,
     }
     _needs_index_flip = ['NBR', 'NDVI', 'NDSI', 'NDMI',
@@ -59,6 +59,33 @@ class LandTrendr:
         self.run(debug)
 
     @property
+    def start_date(self):
+        return self._start_date
+
+    @start_date.setter
+    def start_date(self, start_date):
+        self._start_date = start_date
+        self._needs_rebuild = True
+
+    @property
+    def end_date(self):
+        return self._end_date
+
+    @end_date.setter
+    def end_date(self, end_date):
+        self._end_date = end_date
+        self._needs_rebuild = True
+
+    @property
+    def aoi(self):
+        return self._aoi
+
+    @aoi.setter
+    def aoi(self, aoi):
+        self._aoi = aoi
+        self._needs_rebuild = True
+    
+    @property
     def index(self):
         return self._index
 
@@ -66,6 +93,7 @@ class LandTrendr:
     def index(self, index):
         assert index in self._valid_indices or index in self._valid_indices_alt, f"Index must be one of {self._valid_indices} or {self._valid_indices_alt}"
         self._index = index
+        self._needs_rebuild = True
 
     @property
     def ftv_list(self):
@@ -76,6 +104,7 @@ class LandTrendr:
         assert all([_ in self._valid_indices for _ in ftv_list]
                    ), f"ftv_list must be a subset of {self._valid_indices}"
         self._ftv_list = ftv_list
+        self._needs_rebuild = True
 
     @property
     def mask_labels(self):
@@ -86,6 +115,7 @@ class LandTrendr:
         assert all([_ in self._mask_options for _ in mask_labels]
                    ), f"mask_labels must be a subset of {self._mask_options}"
         self._mask_labels = mask_labels
+        self._needs_rebuild = True
 
     @property
     def run_params(self):
@@ -99,6 +129,7 @@ class LandTrendr:
             self._run_params |= run_params
         else:
             self._run_params = self._default_run_params | run_params
+            self._data = None
 
     @property
     def data(self):
@@ -148,21 +179,30 @@ class LandTrendr:
     def clear_pixel_count_collection(self, collection):
         self._clear_pixel_count_collection = collection
 
-    def run(self, debug=False):
+    def run(self, debug=False, clear_debug=False):
         """
         Initiates the LandTrendr algorithm on Google's servers using the specified run_params and generates an image. This is a wrapper around build_sr_collection and build_lt_collection functions. The array image result is saved to LandTrendr.data as an ee.Image.
         """
-        self.data = None
-        self.sr_collection = None
-        self.lt_collection = None
-        self.clear_pixel_count_collection = None
-        annual_sr_collection = self.build_sr_collection(debug)
-        annual_lt_collection = self.build_lt_collection(annual_sr_collection)
         if debug:
-            self.sr_collection = annual_sr_collection
-            self.lt_collection = annual_lt_collection
-        self.data = ee.Algorithms.TemporalSegmentation.LandTrendr(
-            timeSeries=annual_lt_collection, **self.run_params)
+            self.data = None
+            self.clear_pixel_count_collection = None
+            self.sr_collection = self.build_sr_collection(debug)
+            self.lt_collection = self.build_lt_collection(self.sr_collection)
+            self._needs_rebuild = False
+        else:
+            if self._needs_rebuild:
+                annual_sr_collection = self.build_sr_collection(debug)
+                annual_lt_collection = self.build_lt_collection(
+                    annual_sr_collection)
+                self.data = ee.Algorithms.TemporalSegmentation.LandTrendr(
+                    timeSeries=annual_lt_collection, **self.run_params)
+            else:
+                self.data = ee.Algorithms.TemporalSegmentation.LandTrendr(
+                    timeSeries=self.lt_collection, **self.run_params)
+            if clear_debug:
+                self.clear_pixel_count_collection = None
+                self.sr_collection = None
+                self.lt_collection = None
 
     def build_sr_collection(self, debug=False):
         """
@@ -226,7 +266,7 @@ class LandTrendr:
     def get_change_map(self, change_params):
         """
         Generates a set of map layers describing either vegetation loss or gain events with attributes including: year of change detection, spectral delta, duration of change event, pre-change event spectral value, and the rate of spectral change. Each attribute is a band of an ee.Image.
-        
+
         Args:
             change_params (dict): A dictionary containing the parameters for change detection.
                 {
@@ -483,7 +523,7 @@ class LandTrendr:
     def collection_to_band_stack(self, collection, mask_fill=0):
         """
         Transforms an image collection into an image stack where each band of each image in the collection is concatenated as a band into a single image. Useful for mapping a function over a collection, like transforming surface reflectance to NDVI, and then transforming the resulting collection into a band sequential time series image stack.
-        
+
         Args:
             collection (ee.ImageCollection): The Earth Engine image collection to convert.
             mask_fill (int, optional): The value to fill masked pixels with. Default is 0.
@@ -576,7 +616,7 @@ class LandTrendr:
         for band in band_list:
             band_img = self._calculate_index(img, band, False)
             if prefix:
-                band_img = band_img.select([0], [prefix + '_' + band])
+                band_img = band_img.select([0], [prefix + '_' + band.lower()])
             all_stack = all_stack.addBands(band_img).set(
                 'system:time_start', img.get('system:time_start'))
         return all_stack
