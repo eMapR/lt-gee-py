@@ -84,7 +84,7 @@ class LandTrendr:
     def aoi(self, aoi):
         self._aoi = aoi
         self._needs_rebuild = True
-    
+
     @property
     def index(self):
         return self._index
@@ -616,7 +616,7 @@ class LandTrendr:
         for band in band_list:
             band_img = self._calculate_index(img, band, False)
             if prefix:
-                band_img = band_img.select([0], [prefix + '_' + band.lower()])
+                band_img = band_img.select([band], [prefix + '_' + band.lower()])
             all_stack = all_stack.addBands(band_img).set(
                 'system:time_start', img.get('system:time_start'))
         return all_stack
@@ -665,7 +665,6 @@ class LandTrendr:
         return lt5.merge(le7).merge(lc8).merge(lc9)
 
     def _get_sr_collection(self, year, sensor):
-        # TODO: add functionality to select additional satellite data
         if self.start_date.month > self.end_date.month:
             start_date = ee.Date.fromYMD(
                 year - 1, self.start_date.month, self.start_date.day)
@@ -690,21 +689,13 @@ class LandTrendr:
                                                       ['B1', 'B2', 'B3', 'B4', 'B5', 'B7']))
         else:
             dat = self._scale_unmask_image(img.select(['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7'],
-                                                      ['B1', 'B2', 'B3', 'B4', 'B5', 'B7']))
+                                                      ['B1', 'B2', 'B3', 'B4', 'B5', 'B7'])).resample('bicubic')
         if len(self.mask_labels) > 0:
             dat = self._apply_masks(img.select('QA_PIXEL'), dat)
         return dat
 
     def _scale_unmask_image(self, img):
         return img.multiply(0.0000275).add(-0.2).multiply(10000).toUint16().unmask()
-
-    def _apply_mmu(self, img, mmu_value):
-        mmu_img = img.select([0])\
-            .gte(ee.Number(1))\
-            .selfMask()\
-            .connectedPixelCount()
-        min_area = mmu_img.gte(ee.Number(mmu_value)).selfMask()
-        return min_area.reproject(img.projection().atScale(30)).unmask()
 
     def _apply_masks(self, qa, dat):
         mask = ee.Image(1)
@@ -724,6 +715,14 @@ class LandTrendr:
                 case 'nonforest':
                     mask = mask.mask(forest_mask(self.aoi))
         return dat.mask(mask)
+
+    def _apply_mmu(self, img, mmu_value):
+        mmu_img = img.select([0])\
+            .gte(ee.Number(1))\
+            .selfMask()\
+            .connectedPixelCount()
+        min_area = mmu_img.gte(ee.Number(mmu_value)).selfMask()
+        return min_area.reproject(img.projection().atScale(30)).unmask()
 
     def _calculate_index(self, img, index, flip=True):
         index = index.upper()
@@ -760,8 +759,6 @@ class LandTrendr:
                 return img_collection.sum()
             case _:
                 raise ValueError('The reducer you provided is not supported')
-
-        # TODO: Refactor composite functions to use functools.reduce to keep code DRY
 
     def _make_tc_composite(self, collection, reducer):
         """

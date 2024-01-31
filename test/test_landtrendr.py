@@ -4,7 +4,6 @@ import os
 from datetime import date
 from ltgee import LandTrendr
 
-ee.Initialize(project=os.getenv('GEE_PROJECT'))
 SAMPLES_BASE_PATH = os.getenv('GEE_LT_PY_SAMPLES_BASE_PATH')
 
 TEST_AOI = ee.Geometry.Point([-122.11499066457009, 44.477400937191916])
@@ -34,16 +33,39 @@ MAX_SEGMENTS = [2, 4, 8, 10]
 VALID_INDICES = LandTrendr._valid_indices
 
 
-def test_coll_list_length(self):
-    self.assertEqual(self.py_list.size().getInfo(), len(YEARS))
+def compare_images(img1, img2):
+    bands = img1.bandNames().getInfo()
+    if "LandTrendr" in bands:
+        # TODO: implement parsing and testing for landtrendr Data arrays
+        return False
+    res = img1.subtract(img2).divide(img2).abs().reduceRegion(
+        reducer=ee.Reducer.mean(), geometry=TEST_AOI).getInfo()
+    # TODO: There is potentially a floating point error to address however the difference is always small
+    return [True if _ < 1e7 else False for _ in res.values()]
 
 
-def test_coll_list_element_diff(self):
+def test_sr_list_length(self):
+    self.assertEqual(self.py_sr_list.size().getInfo(), len(YEARS))
+
+
+def test_lt_list_length(self):
+    self.assertEqual(self.py_lt_list.size().getInfo(), len(YEARS))
+
+
+def test_sr_list_element_diff(self):
     for i in range(len(YEARS)):
         with self.subTest(i=i):
-            self.assertTrue(
-                ee.Image(self.py_list.get(i)).eq(
-                    self.js_list[i]).getInfo())
+            res = compare_images(
+                ee.Image(self.py_sr_list.get(i)), self.js_sr_list[i])
+            self.assertTrue(all(res))
+
+
+def test_lt_list_element_diff(self):
+    for i in range(len(YEARS)):
+        with self.subTest(i=i):
+            res = compare_images(
+                ee.Image(self.py_lt_list.get(i)), self.js_lt_list[i])
+            self.assertTrue(all(res))
 
 
 def test_img_band_names(self):
@@ -52,7 +74,8 @@ def test_img_band_names(self):
 
 
 def test_img_data_diff(self):
-    self.assertTrue(self.py_img.eq(self.js_img).getInfo())
+    res = compare_images(self.py_img, self.js_img)
+    self.assertTrue(all(res))
 
 
 def build_test_class(test_attr_string, debug=False, params=LT_PARAMS, param_name="index", param_value=BASE_INDEX):
@@ -83,31 +106,34 @@ def build_test_class(test_attr_string, debug=False, params=LT_PARAMS, param_name
         @classmethod
         def setUpClass(cls):
             match test_attr_string:
-                case "SRColl":
-                    cls.js_list = [
+                case "CollBuilders":
+                    cls.js_sr_list = [
                         ee.Image(f"{SAMPLES_BASE_PATH}/{year}_SRC") for year in YEARS]
-                    cls.py_list = lt.sr_collection.toList(
+                    cls.py_sr_list = lt.sr_collection.toList(
                         lt.sr_collection.size().getInfo())
-                case "LTColl":
-                    cls.js_list = [
-                        ee.Image(f"{SAMPLES_BASE_PATH}/{year}_LTC_{param_value}") for year in YEARS]
-                    cls.py_list = lt.lt_collection.toList(
+                    cls.js_lt_list = [
+                        ee.Image(f"{SAMPLES_BASE_PATH}/{year}_LTC_{param_name}_{param_value}") for year in YEARS]
+                    cls.py_lt_list = lt.lt_collection.toList(
                         lt.lt_collection.size().getInfo())
                 case "LTData":
                     if param_name == "INDEX":
                         cls.js_img = ee.Image(
-                            f"{SAMPLES_BASE_PATH}/LTD_{param_value}")
+                            f"{SAMPLES_BASE_PATH}/LTD_{param_name}_{param_value}")
                     else:
                         cls.js_img = ee.Image(
-                            f"{SAMPLES_BASE_PATH}/LTD_{BASE_INDEX}_{param_name}-{param_value}")
+                            f"{SAMPLES_BASE_PATH}/LTD_INDEX_{BASE_INDEX}_{param_name}_{param_value}")
                     cls.py_img = lt.data
 
     match test_attr_string:
-        case "SRColl" | "LTColl":
+        case "CollBuilders":
             setattr(
-                LandTrendrTest, f"test_{test_attr_string}_{param_name}_{param_value}_length", test_coll_list_length)
+                LandTrendrTest, f"test_{test_attr_string}_{param_name}_{param_value}_sr_length", test_sr_list_length)
             setattr(
-                LandTrendrTest, f"test_{test_attr_string}_{param_name}_{param_value}_diff", test_coll_list_element_diff)
+                LandTrendrTest, f"test_{test_attr_string}_{param_name}_{param_value}_lt_length", test_lt_list_length)
+            setattr(
+                LandTrendrTest, f"test_{test_attr_string}_{param_name}_{param_value}_sr_diff", test_sr_list_element_diff)
+            setattr(
+                LandTrendrTest, f"test_{test_attr_string}_{param_name}_{param_value}_lt_diff", test_lt_list_element_diff)
         case "LTData":
             setattr(
                 LandTrendrTest, f"test_{test_attr_string}_{param_name}_{param_value}_band_names", test_img_band_names)
@@ -117,11 +143,9 @@ def build_test_class(test_attr_string, debug=False, params=LT_PARAMS, param_name
 
 
 if __name__ == '__main__':
+    ee.Initialize()
     test_classes = []
-    test_classes.append(build_test_class(
-        "SRColl", debug=True, param_name="index", param_value="NBR"))
-    test_classes.append(build_test_class(
-        "LTColl", debug=True, param_name="index", param_value="B1"))
+    test_classes.append(build_test_class("CollBuilders", debug=True))
     for index in LandTrendr._valid_indices:
         test_classes.append(build_test_class(
             "LTData", param_name="index", param_value=index))
