@@ -41,7 +41,7 @@ def compare_images(img1, img2):
     res = img1.subtract(img2).divide(img2).abs().reduceRegion(
         reducer=ee.Reducer.mean(), geometry=TEST_AOI).getInfo()
     # TODO: There is potentially a floating point error to address however the difference is always small
-    return [True if _ < 1e7 else False for _ in res.values()]
+    return [True if _ < 1e-7 else False for _ in res.values()]
 
 
 def test_sr_list_length(self):
