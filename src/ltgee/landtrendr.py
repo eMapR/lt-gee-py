@@ -685,14 +685,14 @@ class LandTrendr:
     def _preprocess_image(self, img, sensor):
         # Accounting for band shift between landsat difference landsat images
         if sensor == 'LC08' or sensor == 'LC09':
-            dat = self._scale_unmask_image(img.select(['SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B6', 'SR_B7'],
-                                                      ['B1', 'B2', 'B3', 'B4', 'B5', 'B7']))
+            dat = img.select(['SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B6', 'SR_B7'],
+                                                      ['B1', 'B2', 'B3', 'B4', 'B5', 'B7'])
         else:
-            dat = self._scale_unmask_image(img.select(['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7'],
-                                                      ['B1', 'B2', 'B3', 'B4', 'B5', 'B7'])).resample('bicubic')
+            dat = img.select(['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7'],
+                                                      ['B1', 'B2', 'B3', 'B4', 'B5', 'B7'])
         if len(self.mask_labels) > 0:
             dat = self._apply_masks(img.select('QA_PIXEL'), dat)
-        return dat
+        return self._scale_unmask_image(dat)
 
     def _scale_unmask_image(self, img):
         return img.multiply(0.0000275).add(-0.2).multiply(10000).toUint16().unmask()
