@@ -46,6 +46,7 @@ class LandTrendr:
     }
     _needs_index_flip = ['NBR', 'NDVI', 'NDSI', 'NDMI',
                          'EVI', 'TCG', 'TCW', 'TCA', 'B4', 'NDFI',]
+    _band_names = ['B1', 'B2', 'B3', 'B4', 'B5', 'B7']
 
     def __init__(self, start_date, end_date, aoi, index, ftv_list=[], mask_labels=['cloud', 'shadow', 'snow'], exclude={}, debug=False, run_params={}) -> None:
         self.start_date = start_date
@@ -386,24 +387,24 @@ class LandTrendr:
         # Make an image from the array of attributes for the change of interest
         arr_row_names = [['startYear', 'end year', 'preval',
                           'postval', 'mag', 'dur', 'rate', 'dsnr']]
-        change_img = change_array\
+        change_image = change_array\
             .arrayProject([0]).arrayFlatten(arr_row_names)
-        yod = change_img.select('startYear').add(1).toInt16().rename('yod')
-        change_img = change_img.addBands(yod).select(
+        yod = change_image.select('startYear').add(1).toInt16().rename('yod')
+        change_image = change_image.addBands(yod).select(
             ['yod', 'mag', 'dur', 'preval', 'rate', 'dsnr'])
 
         # Mask for change/no change
-        change_img = change_img\
-            .updateMask(change_img.select('mag').gt(0))
+        change_image = change_image\
+            .updateMask(change_image.select('mag').gt(0))
 
         # Filter by MMU on year of change detection
         if 'mmu' in change_params:
             assert change_params['mmu']['value'] >= 1, "mmu value must be greater than 1"
-            mmu_lyr = change_img.select('yod')
+            mmu_lyr = change_image.select('yod')
             mmu_mask = self._apply_mmu(mmu_lyr, change_params['mmu']['value'])
-            change_img = change_img.updateMask(mmu_mask)
+            change_image = change_image.updateMask(mmu_mask)
 
-        return change_img
+        return change_image
 
     def get_segment_data(self, index, delta, options=None):
         """
@@ -532,7 +533,8 @@ class LandTrendr:
             ee.Image: The band stack image representing a band sequential time series of image bands from each image in the given collection between the start year and end year. Note that masked values in the image collection will be filled with 0
 
         """
-        unmasked_collection = collection.map(lambda img: img.unmask(mask_fill))
+        unmasked_collection = collection.map(
+            lambda image: image.unmask(mask_fill))
         collection_array = unmasked_collection.toArrayPerBand()
         bands = unmasked_collection.first().bandNames().getInfo()
         all_stack = ee.Image()
@@ -555,7 +557,7 @@ class LandTrendr:
         Returns:
             ee.ImageCollection: The transformed surface reflectance collection that includes one image per year based on an image collection built by buildSRcollection function transformed to the indices provided in the bandList parameter..
         """
-        return collection.map(lambda img: self._make_default_composite(img, band_list, prefix))
+        return collection.map(lambda image: self._make_default_composite(image, band_list, prefix))
 
     def get_fitted_rgb_col(self, bands, vis_params):
         """
@@ -581,9 +583,9 @@ class LandTrendr:
                             .addBands(b.select(year_str))
                             .rename(['R', 'G', 'B']))
         rgb_col = ee.ImageCollection(rgb_list)\
-            .map(lambda img: img.visualize(**vis_params))\
-            .map(lambda img:
-                 img.set({'system:time_start': ee.Date.fromYMD(self.start_date.year, self.start_date.month, self.start_date.day).millis(), 'composite_year': self.start_date.year}))
+            .map(lambda image: image.visualize(**vis_params))\
+            .map(lambda image:
+                 image.set({'system:time_start': ee.Date.fromYMD(self.start_date.year, self.start_date.month, self.start_date.day).millis(), 'composite_year': self.start_date.year}))
 
         return rgb_col
 
@@ -599,26 +601,27 @@ class LandTrendr:
             ee.ImageCollection: The standardized image collection.
         """
         z_collection = collection.map(
-            lambda img: self._calculate_index(img, index))
-        return standardize_collection(z_collection).map(lambda img: img.multiply(1000).set('system:time_start', img.get('system:time_start')))
+            lambda image: self._calculate_index(image, index))
+        return standardize_collection(z_collection).map(lambda image: image.multiply(1000).set('system:time_start', image.get('system:time_start')))
 
-    def _make_default_composite(self, img, band_list, prefix):
+    def _make_default_composite(self, image, band_list, prefix):
         """
         Generates a default feature composite for the given image.
 
         Args:
-            img (ee.Image): The input image.
+            image (ee.Image): The input image.
 
         Returns:
             ee.Image: The feature composite image.
         """
-        all_stack = self._calculate_index(img, self.index)
+        all_stack = self._calculate_index(image, self.index)
         for band in band_list:
-            band_img = self._calculate_index(img, band, False)
+            band_image = self._calculate_index(image, band, False)
             if prefix:
-                band_img = band_img.select([band], [prefix + '_' + band.lower()])
-            all_stack = all_stack.addBands(band_img).set(
-                'system:time_start', img.get('system:time_start'))
+                band_image = band_image.select(
+                    [band], [prefix + '_' + band.lower()])
+            all_stack = all_stack.addBands(band_image).set(
+                'system:time_start', image.get('system:time_start'))
         return all_stack
 
     def _count_clear_view_pixels(self, collection):
@@ -631,7 +634,7 @@ class LandTrendr:
         Returns:
             ee.Image: The image containing the number of clear view pixels.
         """
-        binary = collection.map(lambda img: img.select(
+        binary = collection.map(lambda image: image.select(
             0).multiply(0).add(1).unmask(0))
         return binary.sum()
 
@@ -650,10 +653,10 @@ class LandTrendr:
                 self.clear_pixel_count_collection = not_mask_count
         median = final_collection.median()
         med_diff_collection = final_collection.map(
-            lambda img: calculate_median_diff(img, median))
+            lambda image: calculate_median_diff(image, median))
         return med_diff_collection\
             .reduce(ee.Reducer.min(7))\
-            .select([1, 2, 3, 4, 5, 6], ['B1', 'B2', 'B3', 'B4', 'B5', 'B7'])\
+            .select([1, 2, 3, 4, 5, 6], self._band_names)\
             .set('system:time_start', ee.Date.fromYMD(year, self.start_date.month, self.start_date.day).millis())\
             .toUint16()
 
@@ -678,24 +681,25 @@ class LandTrendr:
         sr_collection = ee.ImageCollection('LANDSAT/' + sensor + '/C02/T1_L2')\
             .filterBounds(self.aoi)\
             .filterDate(start_date, end_date)\
-            .map(lambda img: self._preprocess_image(img, sensor))\
+            .map(lambda image: self._preprocess_image(image, sensor))\
             .set("system:time_start", start_date.millis())
         return self._remove_images(sr_collection)
 
-    def _preprocess_image(self, img, sensor):
+    def _preprocess_image(self, image, sensor):
         # Accounting for band shift between landsat difference landsat images
         if sensor == 'LC08' or sensor == 'LC09':
-            dat = img.select(['SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B6', 'SR_B7'],
-                                                      ['B1', 'B2', 'B3', 'B4', 'B5', 'B7'])
+            dat = image.select(['SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B6', 'SR_B7'],
+                               self._band_names)
         else:
-            dat = img.select(['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7'],
-                                                      ['B1', 'B2', 'B3', 'B4', 'B5', 'B7'])
+            dat = image.select(['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7'],
+                               self._band_names)
+        dat = self._scale_unmask_image(dat)
         if len(self.mask_labels) > 0:
-            dat = self._apply_masks(img.select('QA_PIXEL'), dat)
-        return self._scale_unmask_image(dat)
+            dat = self._apply_masks(image.select('QA_PIXEL'), dat)
+        return dat
 
-    def _scale_unmask_image(self, img):
-        return img.multiply(0.0000275).add(-0.2).multiply(10000).toUint16().unmask()
+    def _scale_unmask_image(self, image):
+        return image.multiply(0.0000275).add(-0.2).multiply(10000).toUint16().unmask()
 
     def _apply_masks(self, qa, dat):
         mask = ee.Image(1)
@@ -716,47 +720,47 @@ class LandTrendr:
                     mask = mask.mask(forest_mask(self.aoi))
         return dat.mask(mask)
 
-    def _apply_mmu(self, img, mmu_value):
-        mmu_img = img.select([0])\
+    def _apply_mmu(self, image, mmu_value):
+        mmu_image = image.select([0])\
             .gte(ee.Number(1))\
             .selfMask()\
             .connectedPixelCount()
-        min_area = mmu_img.gte(ee.Number(mmu_value)).selfMask()
-        return min_area.reproject(img.projection().atScale(30)).unmask()
+        min_area = mmu_image.gte(ee.Number(mmu_value)).selfMask()
+        return min_area.reproject(image.projection().atScale(30)).unmask()
 
-    def _calculate_index(self, img, index, flip=True):
+    def _calculate_index(self, image, index, flip=True):
         index = index.upper()
         match index:
             case 'B1' | 'B2' | 'B3' | 'B5' | 'B4' | 'B7':
-                index_img = img.select(index).toFloat()
+                index_image = image.select(index).toFloat()
             case 'NBR':
-                index_img = nbr_transform(img)
+                index_image = nbr_transform(image)
             case 'NDMI':
-                index_img = ndmi_transform(img)
+                index_image = ndmi_transform(image)
             case 'NDVI':
-                index_img = ndvi_transform(img)
+                index_image = ndvi_transform(image)
             case 'NDSI':
-                index_img = ndsi_transform(img)
+                index_image = ndsi_transform(image)
             case 'EVI':
-                index_img = evi_transform(img)
+                index_image = evi_transform(image)
             case 'TCB' | 'TCG' | 'TCW' | 'TCA':
-                index_img = tc_transform(img).select([index])
+                index_image = tc_transform(image).select([index])
             case 'NDFI':
-                index_img = ndfi_transform(img)
+                index_image = ndfi_transform(image)
             case _:
                 raise ValueError('The index you provided is not supported')
         if flip and index in self._needs_index_flip:
-            index_img = index_img.multiply(-1)
-        return index_img.set('system:time_start', img.get('system:time_start'))
+            index_image = index_image.multiply(-1)
+        return index_image.set('system:time_start', image.get('system:time_start'))
 
-    def _reducer(img_collection, reducer):
+    def _reducer(image_collection, reducer):
         match reducer:
             case 'mean':
-                return img_collection.mean()
+                return image_collection.mean()
             case 'max':
-                return img_collection.max()
+                return image_collection.max()
             case 'sum':
-                return img_collection.sum()
+                return image_collection.sum()
             case _:
                 raise ValueError('The reducer you provided is not supported')
 
@@ -781,22 +785,22 @@ class LandTrendr:
         tcw_standard = standardize_collection(tcw)
         tc_standard = tcb_standard.combine(tcg_standard).combine(tcw_standard)
 
-        return tc_standard.map(lambda img: self._tc_reducer(img, reducer))
+        return tc_standard.map(lambda image: self._tc_reducer(image, reducer))
 
-    def _tc_composite(self, img):
-        tcb = self._calculate_index(img, 'TCB')
-        tcg = self._calculate_index(img, 'TCG')
-        tcw = self._calculate_index(img, 'TCW')
-        return tcb.addBands(tcg).addBands(tcw).set('system:time_start', img.get('system:time_start'))
+    def _tc_composite(self, image):
+        tcb = self._calculate_index(image, 'TCB')
+        tcg = self._calculate_index(image, 'TCG')
+        tcw = self._calculate_index(image, 'TCW')
+        return tcb.addBands(tcg).addBands(tcw).set('system:time_start', image.get('system:time_start'))
 
-    def _tc_reducer(self, img, reducer):
-        img_collection = ee.ImageCollection.fromImages(
-            [img.select(['TCB'], ['Z']),
-             img.select(['TCG'], ['Z']),
-             img.select(['TCW'], ['Z'])]
+    def _tc_reducer(self, image, reducer):
+        image_collection = ee.ImageCollection.fromImages(
+            [image.select(['TCB'], ['Z']),
+             image.select(['TCG'], ['Z']),
+             image.select(['TCW'], ['Z'])]
         )
-        reduced_img = self._reducer(img_collection, reducer)
-        return reduced_img.multiply(1000).set('system:time_start', img.get('system:time_start'))
+        reduced_image = self._reducer(image_collection, reducer)
+        return reduced_image.multiply(1000).set('system:time_start', image.get('system:time_start'))
 
     def _make_ensemble_composite(self, collection, reducer):
         """
@@ -831,34 +835,34 @@ class LandTrendr:
             .combine(ndmi_standard)\
             .combine(nbr_standard)
 
-        return ensemble.map(lambda img: self._ensemble_reducer(img, reducer))
+        return ensemble.map(lambda image: self._ensemble_reducer(image, reducer))
 
-    def _ensemble_composite(self, img):
-        b5 = self._calculate_index(img, 'B5')
-        b7 = self._calculate_index(img, 'B7')
-        tcw = self._calculate_index(img, 'TCW')
-        tca = self._calculate_index(img, 'TCA')
-        ndmi = self._calculate_index(img, 'NDMI')
-        nbr = self._calculate_index(img, 'NBR')
+    def _ensemble_composite(self, image):
+        b5 = self._calculate_index(image, 'B5')
+        b7 = self._calculate_index(image, 'B7')
+        tcw = self._calculate_index(image, 'TCW')
+        tca = self._calculate_index(image, 'TCA')
+        ndmi = self._calculate_index(image, 'NDMI')
+        nbr = self._calculate_index(image, 'NBR')
 
         return b5.addBands(b7)\
             .addBands(tcw)\
             .addBands(tca)\
             .addBands(ndmi)\
             .addBands(nbr)\
-            .set('system:time_start', img.get('system:time_start'))
+            .set('system:time_start', image.get('system:time_start'))
 
-    def _ensemble_reducer(self, img, reducer):
-        img_collection = ee.ImageCollection.fromImages(
-            [img.select(['B5'], ['Z']),
-             img.select(['B7'], ['Z']),
-             img.select(['TCW'], ['Z']),
-             img.select(['TCA'], ['Z']),
-             img.select(['NDMI'], ['Z']),
-             img.select(['NBR'], ['Z'])]
+    def _ensemble_reducer(self, image, reducer):
+        image_collection = ee.ImageCollection.fromImages(
+            [image.select(['B5'], ['Z']),
+             image.select(['B7'], ['Z']),
+             image.select(['TCW'], ['Z']),
+             image.select(['TCA'], ['Z']),
+             image.select(['NDMI'], ['Z']),
+             image.select(['NBR'], ['Z'])]
         )
-        reduced_img = self._reducer(img_collection, reducer)
-        return reduced_img.multiply(1000).set('system:time_start', img.get('system:time_start'))
+        reduced_image = self._reducer(image_collection, reducer)
+        return reduced_image.multiply(1000).set('system:time_start', image.get('system:time_start'))
 
     def _make_ensemble_composite_alt(self, collection, reducer):
         """
@@ -885,28 +889,28 @@ class LandTrendr:
             .combine(tcg_standard)\
             .combine(nbr_standard)
 
-        return ensemble_alt.map(lambda img: self._ensemble_reducer_alt(img, reducer))
+        return ensemble_alt.map(lambda image: self._ensemble_reducer_alt(image, reducer))
 
-    def _ensemble_composite_alt(self, img):
-        b5 = self._calculate_index(img, 'B5')
-        tcb = self._calculate_index(img, 'TCB')
-        tcg = self._calculate_index(img, 'TCG')
-        nbr = self._calculate_index(img, 'NBR')
+    def _ensemble_composite_alt(self, image):
+        b5 = self._calculate_index(image, 'B5')
+        tcb = self._calculate_index(image, 'TCB')
+        tcg = self._calculate_index(image, 'TCG')
+        nbr = self._calculate_index(image, 'NBR')
 
         return b5.addBands(tcb)\
             .addBands(tcg)\
             .addBands(nbr)\
-            .set('system:time_start', img.get('system:time_start'))
+            .set('system:time_start', image.get('system:time_start'))
 
-    def _ensemble_reducer_alt(self, img, reducer):
-        img_collection = ee.ImageCollection.fromImages(
-            [img.select(['B5'], ['Z']),
-             img.select(['TCB'], ['Z']),
-             img.select(['TCG'], ['Z']),
-             img.select(['NBR'], ['Z'])]
+    def _ensemble_reducer_alt(self, image, reducer):
+        image_collection = ee.ImageCollection.fromImages(
+            [image.select(['B5'], ['Z']),
+             image.select(['TCB'], ['Z']),
+             image.select(['TCG'], ['Z']),
+             image.select(['NBR'], ['Z'])]
         )
-        reduced_img = self._reducer(img_collection, reducer)
-        return reduced_img.multiply(1000).set('system:time_start', img.get('system:time_start'))
+        reduced_image = self._reducer(image_collection, reducer)
+        return reduced_image.multiply(1000).set('system:time_start', image.get('system:time_start'))
 
     def _remove_images(self, collection):
         """
@@ -919,11 +923,11 @@ class LandTrendr:
         Returns:
             ee.ImageCollection: The updated image collection with images removed.
         """
-        if 'imgIds' in self.exclude:
-            exclude_list = self.exclude['imgIds']
-            for img_id in exclude_list:
+        if 'imageIds' in self.exclude:
+            exclude_list = self.exclude['imageIds']
+            for image_id in exclude_list:
                 collection = collection.filter(ee.Filter.neq(
-                    'system:index', img_id.split('/')[-1]))
+                    'system:index', image_id.split('/')[-1]))
 
         if 'slcOff' in self.exclude:
             if self.exclude['slcOff'] is True:
