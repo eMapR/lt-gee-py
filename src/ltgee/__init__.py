@@ -1,2 +1,2 @@
 from .landtrendr import *
-from .gee_helpers import *
+from .gee_utils import *

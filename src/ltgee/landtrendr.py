@@ -1,5 +1,5 @@
 import ee
-from .gee_helpers import water_mask, forest_mask, calculate_median_diff, tc_transform, ndvi_transform, ndmi_transform, ndsi_transform, nbr_transform, evi_transform, ndfi_transform, standardize_collection
+from .gee_utils import water_mask, forest_mask, calculate_median_diff, tc_transform, ndvi_transform, ndmi_transform, ndsi_transform, nbr_transform, evi_transform, ndfi_transform, standardize_collection
 
 
 class LandTrendr:
