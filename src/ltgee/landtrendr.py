@@ -9,12 +9,13 @@ class LandTrendr:
     #### Args:
     start_date (datetime):          The start date of the analysis.
     end_date (datetime):            The end date of the analysis.
-    aoi (ee.Geometry):              The area of interest for the analysis.
+    area_of_interest (ee.Geometry):              The area of interest for the analysis.
     index (str):                    The index to be used for the analysis.
     ftv_list (list, optional):      List of additional feature variables. Defaults to [].
     mask_labels (list, optional):   List of mask labels. Defaults to ['cloud', 'shadow', 'snow'].
     exclude (dict, optional):       Dictionary of image ids to be excluded. Defaults to {}.
     debug (bool, optional):         Whether to run in debug mode. Defaults to False.
+    run (bool, optional):           Whether to run the run method immediately. Defaults to True.
     run_params (:obj:, optional):    Dictionary of run parameters (See below).
         {
             maxSegments (int, optional):                Maximum number of segments. Defaults to 6.
@@ -48,16 +49,17 @@ class LandTrendr:
                          'EVI', 'TCG', 'TCW', 'TCA', 'B4', 'NDFI',]
     _band_names = ['B1', 'B2', 'B3', 'B4', 'B5', 'B7']
 
-    def __init__(self, start_date, end_date, aoi, index, ftv_list=[], mask_labels=['cloud', 'shadow', 'snow'], exclude={}, debug=False, run_params={}) -> None:
+    def __init__(self, start_date, end_date, area_of_interest, index='NBR', ftv_list=[], mask_labels=['cloud', 'shadow', 'snow'], exclude={}, debug=False, run=True, run_params={}) -> None:
         self.start_date = start_date
         self.end_date = end_date
-        self.aoi = aoi
+        self.area_of_interest = area_of_interest
         self.index = index
         self.ftv_list = ftv_list
         self.mask_labels = mask_labels
         self.exclude = exclude
         self.run_params = run_params
-        self.run(debug)
+        if run:
+            self.run(debug)
 
     @property
     def start_date(self):
@@ -78,12 +80,12 @@ class LandTrendr:
         self._needs_rebuild = True
 
     @property
-    def aoi(self):
-        return self._aoi
+    def area_of_interest(self):
+        return self._area_of_interest
 
-    @aoi.setter
-    def aoi(self, aoi):
-        self._aoi = aoi
+    @area_of_interest.setter
+    def area_of_interest(self, area_of_interest):
+        self._area_of_interest = area_of_interest
         self._needs_rebuild = True
 
     @property
@@ -679,7 +681,7 @@ class LandTrendr:
             end_date = ee.Date.fromYMD(
                 year, self.end_date.month, self.end_date.day)
         sr_collection = ee.ImageCollection('LANDSAT/' + sensor + '/C02/T1_L2')\
-            .filterBounds(self.aoi)\
+            .filterBounds(self.area_of_interest)\
             .filterDate(start_date, end_date)\
             .map(lambda image: self._preprocess_image(image, sensor))\
             .set("system:time_start", start_date.millis())
@@ -715,9 +717,9 @@ class LandTrendr:
                 case 'cloud':
                     mask = qa.bitwiseAnd(1 << 3).eq(0).multiply(mask)
                 case 'waterplus':
-                    mask = mask.mask(water_mask(self.aoi))
+                    mask = mask.mask(water_mask(self.area_of_interest))
                 case 'nonforest':
-                    mask = mask.mask(forest_mask(self.aoi))
+                    mask = mask.mask(forest_mask(self.area_of_interest))
         return dat.mask(mask)
 
     def _apply_mmu(self, image, mmu_value):
