@@ -37,5 +37,6 @@ issue_tracker = "https://github.com/eMapR/lt-gee-py/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+exclude = [".github*"]
 
 [tool.setuptools_scm]
