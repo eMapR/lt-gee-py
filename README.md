@@ -17,7 +17,7 @@ The **LandTrendr** class from **lt-gee-py** is a light wrapper around the Google
 conda install -c conda-forge earthengine-api
 ```
 
-- Install lt-gee-py package by cloning this repo and using the command below in the repo directory.
+- Install lt-gee-py package using the pip command.
 
 ```
 pip install lt-gee-py
