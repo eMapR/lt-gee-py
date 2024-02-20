@@ -20,7 +20,7 @@ conda install -c conda-forge earthengine-api
 - Install lt-gee-py package by cloning this repo and using the command below in the repo directory.
 
 ```
-pip install .
+pip install lt-gee-py
 ```
 
 ### Authenticate on Google Earth Engine
