@@ -48,7 +48,7 @@ lt_params = {
     "ftv_list": ['TCB', 'TCG', 'TCW', 'NBR'],
     "mask_labels": ['cloud', 'shadow', 'snow', 'water'],
 
-    "aoi": ee.Geometry.Point(-122.8848, 43.7929),
+    "area_of_interest": ee.Geometry.Point(-122.8848, 43.7929),
     "run_params": {
             "maxSegments": 6,
             "spikeThreshold": 0.9,
