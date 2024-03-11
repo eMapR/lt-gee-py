@@ -520,7 +520,7 @@ class LandTrendr:
         Returns:
             ee.Image: An image representing fitted-to-vertex annual spectral data for whatever index was provided as the index parameter. There will be as many bands as there are years in the range inclusive of the start year and end year.
         """
-        search = '*' + index.lower() + '_fit'
+        search = 'ftv_' + index.lower() + '_fit'
         return self.data.select(search).arrayFlatten([[str(_) for _ in range(self.start_date.year, self.end_date.year + 1)]])
 
     def collection_to_band_stack(self, collection, mask_fill=0):
