@@ -289,7 +289,7 @@ class LandTrendr:
                 Duration of change event: 'dur' (years)
                 Pre-change event spectral value: 'preval' (spectral value)
                 Rate of spectral change for event 'rate' (mag/dur)
-                DSNR 'dsnr' (mag/fit rmse) multipled by 100 to retain two decimal precision with Int16 data.
+                DSNR 'dsnr' (mag/fit rmse) multiplied by 100 to retain two decimal precision with Int16 data.
         """
         # Backward compatibility for dsnr
         if 'dsnr' not in change_params['mag']:
