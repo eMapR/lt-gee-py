@@ -847,6 +847,7 @@ class LandTrendr:
                     .unmask(ee.Image(ee.Array([[-9999]]))) \
                     .toArray(0)
 
+    @staticmethod
     def get_segment_count(segment_data: ee.Image) -> ee.Image:
         """
         Given a segment data array produced by the getSegmentData function, this function returns the number of segments identified by LandTrendr as an ee.Image.
