@@ -2,7 +2,22 @@ import ee
 import math
 
 
-def calculate_median_diff(img, median):
+def count_clear_view_pixels(collection: ee.ImageCollection) -> ee.Image:
+    """
+    Counts the number of clear view pixels for the given collection.
+
+    Args:
+        collection (ee.ImageCollection): The image collection.
+
+    Returns:
+        ee.Image: The image containing the number of clear view pixels.
+    """
+    binary = collection.map(lambda image: image.select(
+        0).multiply(0).add(1).unmask(0))
+    return binary.sum()
+
+
+def calculate_median_diff(img: ee.Image, median: ee.Image) -> ee.Image:
     """
     Calculates the difference between an image and a given median value.
 
@@ -17,7 +32,7 @@ def calculate_median_diff(img, median):
     return diff.reduce('sum').addBands(img)
 
 
-def forest_mask(aoi):
+def forest_mask(aoi: ee.Geometry) -> ee.Image:
     """
     Generate a forest mask for a given area of interest (AOI).
 
@@ -38,7 +53,7 @@ def forest_mask(aoi):
     return selected_forests.clip(aoi)
 
 
-def water_mask(aoi):
+def water_mask(aoi: ee.Geometry) -> ee.Image:
     """
     Generate a water mask to the given area of interest (aoi).
 
@@ -57,7 +72,7 @@ def water_mask(aoi):
     return mapped_water_binary.clip(aoi)
 
 
-def standardize_collection(collection):
+def standardize_collection(collection: ee.ImageCollection) -> ee.ImageCollection:
     """
     Standardizes the given collection by subtracting the mean and dividing by the standard deviation.
 
@@ -74,7 +89,8 @@ def standardize_collection(collection):
     return mean_adj.map(lambda img: img.divide(std_dev).set('system:time_start', img.get('system:time_start')))
 
 
-def tc_transform(img, color_bands=['B1', 'B2', 'B3', 'B4', 'B5', 'B7']):
+def tc_transform(img: ee.Image,
+                 color_bands: list[str] = ['B1', 'B2', 'B3', 'B4', 'B5', 'B7']) -> ee.Image:
     b = ee.Image(img).select(color_bands)
 
     brt_coeffs = ee.Image.constant(
@@ -98,14 +114,14 @@ def tc_transform(img, color_bands=['B1', 'B2', 'B3', 'B4', 'B5', 'B7']):
         .set('system:time_start', img.get('system:time_start'))
 
 
-def nbr_transform(img):
+def nbr_transform(img: ee.Image) -> ee.Image:
     return img.normalizedDifference(['B4', 'B7']) \
         .multiply(1000) \
         .select([0], ['NBR']) \
         .set('system:time_start', img.get('system:time_start'))
 
 
-def ndfi_transform(img):
+def ndfi_transform(img: ee.Image) -> ee.Image:
     params = {
         'cfThreshold': 0.01,
         'soil': [2000, 3000, 3400, 5800, 6000, 5800],
@@ -150,7 +166,9 @@ def ndfi_transform(img):
         'system:time_start', img.get('system:time_start'))
 
 
-def ndvi_transform(img, nir_band_name='B4', red_band_name='B5'):
+def ndvi_transform(img: ee.Image,
+                   nir_band_name: str = 'B4',
+                   red_band_name: str = 'B5') -> ee.Image:
     ndvi = img.normalizedDifference([nir_band_name, red_band_name]) \
         .multiply(1000) \
         .select([0], ['NDVI']) \
@@ -158,7 +176,9 @@ def ndvi_transform(img, nir_band_name='B4', red_band_name='B5'):
     return ndvi
 
 
-def ndsi_transform(img, swir_band_name='B5', green_band_name='B2'):
+def ndsi_transform(img: ee.Image,
+                   swir_band_name: str = 'B5',
+                   green_band_name: str = 'B2') -> ee.Image:
     ndsi = img.normalizedDifference([green_band_name, swir_band_name]) \
         .multiply(1000) \
         .select([0], ['NDSI']) \
@@ -166,7 +186,9 @@ def ndsi_transform(img, swir_band_name='B5', green_band_name='B2'):
     return ndsi
 
 
-def ndmi_transform(img, nir_band_name='B4', swir_band_name='B5'):
+def ndmi_transform(img: ee.Image,
+                   nir_band_name: str = 'B4',
+                   swir_band_name: str = 'B5') -> ee.Image:
     ndmi = img.normalizedDifference([nir_band_name, swir_band_name]) \
         .multiply(1000) \
         .select([0], ['NDMI']) \
@@ -174,7 +196,10 @@ def ndmi_transform(img, nir_band_name='B4', swir_band_name='B5'):
     return ndmi
 
 
-def evi_transform(img, nir_band_name='B4', red_band_name='B3', blue_band_name='B1'):
+def evi_transform(img: ee.Image,
+                  nir_band_name: str = 'B4',
+                  red_band_name: str = 'B3',
+                  blue_band_name: str = 'B1') -> ee.Image:
     evi = img.expression(
         '2.5 * ((NIR - RED) / (NIR + 6 * RED - 7.5 * BLUE + 1))', {
             'NIR': img.select(nir_band_name),

@@ -5,7 +5,7 @@ Python interface to the Google Earth Engine implementation of the LandTrendr spe
 
 **LandTrendr** is set of spectral-temporal segmentation algorithms that are useful for change detection in a time series of moderate resolution satellite imagery (primarily Landsat) and for generating trajectory-based spectral time series data largely absent of inter-annual signal noise. LT was originally implemented in IDL (Interactive Data Language), but with the help of engineers at Google, it has been ported to the GEE platform.
 
-The **LandTrendr** class from **lt-gee-py** is a light wrapper around the Google Earth Engine API that includes convenience methods to generate images and collections in the format required for LandTrendr on GEE. 
+The **LandTrendr** class from **lt-gee-py** is a light wrapper around the Google Earth Engine API that includes convenience methods to generate images and collections in the format required for LandTrendr on GEE. Please be aware this package is in alpha and may change.
 
 ## Getting Started
 
@@ -41,14 +41,33 @@ from ltgee import LandTrendr
 ee.Initialize("my_project_name")
 
 # Initialize variables for LandTrendr algorithm
-lt_params = {
+composite_params = {
     "start_date": date(1985, 6,1),
     "end_date": date(2017, 9,1),
-    "index": 'NBR',
-    "ftv_list": ['TCB', 'TCG', 'TCW', 'NBR'],
+    "area_of_interest": ee.Geometry({
+        'type': 'Polygon',
+        'coordinates': [
+            [
+                [-122.37202331327023,44.62585686599272],
+                [-122.26765319608273,44.62585686599272],
+                [-122.26765319608273,44.696185837887384],
+                [-122.37202331327023,44.696185837887384],
+                [-122.37202331327023,44.62585686599272],
+                ]
+            ]
+    }),
     "mask_labels": ['cloud', 'shadow', 'snow', 'water'],
-
-    "area_of_interest": ee.Geometry.Point(-122.8848, 43.7929),
+    "debug": True
+}
+lt_collection_params = {
+        "sr_collection": LandsatComposite(**composite_params),
+        # "sr_collection": composite_params, # - you may also just pass in your own collection or the params directly. Note: in the former, some methods in the class may not work.
+        "index": 'NBR',
+        "ftv_list": ['TCB', 'TCG', 'TCW', 'NBR'],
+}
+lt_params = {
+    "lt_collection": LtCollection(**lt_collection_params),
+    # "lt_collection": lt_collection_params, # - you may also just pass in your own collection or the params directly. Note: in the former, some methods in the class may not work.
     "run_params": {
             "maxSegments": 6,
             "spikeThreshold": 0.9,
