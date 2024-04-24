@@ -35,7 +35,7 @@ earthengine authenticate # There are several alternatives for this. See link abo
 
 ```python
 import ee
-from ltgee import LandTrendr
+from ltgee import LandTrendr, LandsatComposite, LtCollection
 
 # Initialize access to Google's EE servers
 ee.Initialize("my_project_name")
