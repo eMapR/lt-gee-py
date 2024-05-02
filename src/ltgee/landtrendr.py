@@ -183,7 +183,7 @@ class LandsatComposite(ee.ImageCollection):
             if self.exclude['slcOff'] is True:
                 collection = collection.filter(ee.Filter.And(
                     ee.Filter.eq('SPACECRAFT_ID', 'LANDSAT_7'),
-                    ee.Filter.gt('SCENE_CENTER_TIME', '2003-06-01T00:00')
+                    ee.Filter.gt('system:time_start', 1054425600000)
                 ).Not())
         return collection
 
