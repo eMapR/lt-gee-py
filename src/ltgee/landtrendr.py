@@ -227,7 +227,9 @@ class LtCollection(ee.ImageCollection):
 
     @index.setter
     def index(self, index: str):
-        assert index in self._valid_indices or index in self._valid_indices_alt, f"Index must be one of {self._valid_indices} or {self._valid_indices_alt}"
+        assert index in self._valid_indices or index in self._valid_indices_alt, \
+            f"Index must be one of {self._valid_indices} or {
+                self._valid_indices_alt}"
         self._index = index
 
     @property
@@ -548,13 +550,12 @@ class LtCollection(ee.ImageCollection):
         return reduced_image.multiply(1000).set('system:time_start', image.get('system:time_start'))
 
 
-class LandTrendr:
+class LandTrendr(ee.Image):
     """
     ### Landtrendr class for performing landtrendr analysis using Google Earth Engine.
 
     #### Args:
     lt_collection (:obj:, optional):         LandTrendr collection. Defaults to None.
-    lt_collection_params (:obj:, optional):  Dictionary of parameters to build a new LandTrendr collection (See class definition above).
     run_params (:obj:, optional):            Dictionary of run parameters (See below).
         {
             maxSegments (int, optional):                Maximum number of segments. Defaults to 6.
@@ -581,10 +582,11 @@ class LandTrendr:
     }
 
     def __init__(self,
-                 lt_collection: LtCollection | ee.ImageCollection,
+                 lt_collection: LtCollection | ee.ImageCollection | dict,
                  run_params: dict = _default_run_params,
                  run: bool = True):
         self.run_params = run_params
+        self.initialized = False
         if isinstance(lt_collection, dict):
             self.lt_collection = LtCollection(**lt_collection)
         else:
@@ -592,6 +594,16 @@ class LandTrendr:
 
         if run:
             self.run()
+
+    def __getattribute__(self, name):
+        attr = super().__getattribute__(name)
+
+        # 'initilize' is the run method of ee.Image
+        if callable(attr) and name not in ["run", "initialize"] and not self.initialized:
+            raise AttributeError(
+                "LandTrendr object has not been initialized. Please run the 'run' method.")
+        else:
+            return attr
 
     @property
     def run_params(self):
@@ -611,8 +623,9 @@ class LandTrendr:
         """
         Initiates the LandTrendr algorithm on Google's servers using the specified run_params and generates an image.
         """
-        self.data = ee.Algorithms.TemporalSegmentation.LandTrendr(
-            timeSeries=self.lt_collection, **self.run_params)
+        super().__init__(ee.Algorithms.TemporalSegmentation.LandTrendr(
+            timeSeries=self.lt_collection, **self.run_params))
+        self.initialized = True
 
     def get_change_map(self,
                        change_params: dict) -> ee.Image:
@@ -787,8 +800,8 @@ class LandTrendr:
             _options['right'] = options
 
         # TODO: Refactor to avoid excessive array slicing
-        lt_band = self.data.select('LandTrendr')  # select the LandTrendr band
-        rmse = self.data.select('rmse')  # select the rmse band
+        lt_band = self.select('LandTrendr')  # select the LandTrendr band
+        rmse = self.select('rmse')  # select the rmse band
         # slice out the 'Is Vertex' row - yes(1)/no(0)
         vertex_mask = lt_band.arraySlice(0, 3, 4)
         # use the 'Is Vertex' row as a mask for all rows
@@ -879,7 +892,7 @@ class LandTrendr:
             ee.Image: An image representing fitted-to-vertex annual spectral data for whatever index was provided as the index parameter. There will be as many bands as there are years in the range inclusive of the start year and end year.
         """
         search = 'ftv_' + index.lower() + '_fit'
-        return self.data.select(search).arrayFlatten([[str(_) for _ in range(start_date.year, end_date.year + 1)]])
+        return self.select(search).arrayFlatten([[str(_) for _ in range(start_date.year, end_date.year + 1)]])
 
     def collection_to_band_stack(self,
                                  collection: ee.ImageCollection,

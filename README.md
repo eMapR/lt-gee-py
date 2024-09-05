@@ -83,8 +83,8 @@ lt_params = {
 # Instantiating LandTrendr object. Note: The object will immediately request to run the algorithm on Google's servers.
 lt = LandTrendr(**lt_params)
 
-# Access resulting image using the data attribute.
-lt_data = lt.data
+# Access resulting image using the getInfo attribute. LandTrendr is a sublass of ee.Image
+print(lt.getInfo())
 ```
 
 ## Features / Methods
