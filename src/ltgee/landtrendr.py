@@ -228,8 +228,7 @@ class LtCollection(ee.ImageCollection):
     @index.setter
     def index(self, index: str):
         assert index in self._valid_indices or index in self._valid_indices_alt, \
-            f"Index must be one of {self._valid_indices} or {
-                self._valid_indices_alt}"
+            f"Index must be one of {self._valid_indices} or {self._valid_indices_alt}"
         self._index = index
 
     @property
