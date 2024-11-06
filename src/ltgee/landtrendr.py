@@ -17,6 +17,195 @@ from .gee_utils import (count_clear_view_pixels,
                         standardize_collection)
 
 
+class Sentinel2Composite(ee.ImageCollection):
+    """
+    SentinelComposite class for building a cloud-masked Sentinel-2 surface reflectance composite.
+
+    Args:
+        area_of_interest (ee.Geometry): Area of interest.
+        start_date (datetime): Start date for the image collection.
+        end_date (datetime): End date for the image collection.
+        cloud_filter (int): Max cloud cover percentage allowed in images.
+        cloud_prb_thresh (int): Cloud probability threshold for masking.
+        nir_drk_thresh (float): NIR reflectance threshold for cloud shadows.
+        cloud_prj_dist (float): Max distance (in km) to project cloud shadows.
+        buffer (int): Buffer distance (in meters) for cloud edge.
+        exclude (dict): Dictionary for exluding images in the compositing
+    """
+    _sr_band_scale = 1e4
+
+    def __init__(self,
+                 area_of_interest: ee.Geometry,
+                 start_date: datetime,
+                 end_date: datetime,
+                 cloud_filter: int = 20,
+                 cloud_prb_thresh: int = 65,
+                 nir_drk_thresh: float = 0.2,
+                 cloud_prj_dist: float = 1.5,
+                 buffer: int = 50,
+                 exclude: dict = {}):
+        self.area_of_interest = area_of_interest
+        self.start_date = start_date
+        self.end_date = end_date
+        self.cloud_filter = cloud_filter
+        self.cloud_prb_thresh = cloud_prb_thresh
+        self.nir_drk_thresh = nir_drk_thresh
+        self.cloud_prj_dist = cloud_prj_dist
+        self.buffer = buffer
+        self.exclude = exclude
+        super().__init__(self._build_sr_collection())
+        
+    # TODO: assertion checks on thresholds
+    def _build_sr_collection(self, debug: Optional[bool] = False):
+        """
+        Builds a medoid composite of Landsat surface reflectance TM-equivalent bands 1,2,3,4,5,7 from Sentinel 2 Harmonized
+        This collection can be useful outside of use by LandTrendr, but is also the base for creating the input collection for LandTrendr.
+
+        Returns:
+            ee.ImageCollection: A collection where each image represents the medoid of observations per TM-equivalent surface reflectance bands 1-5 and 7, for a given year. There will be as many images as there are years in the range inclusive of the start year and end year.
+        """
+        dummy_collection = ee.ImageCollection(
+            [ee.Image([0, 0, 0, 0, 0, 0]).mask(ee.Image(0))])
+        return ee.ImageCollection(
+            [self._build_medoid_mosaic(year, dummy_collection, debug) for year in range(self.start_date.year, self.end_date.year + 1)])
+
+    def _build_medoid_mosaic(self,
+                             year: int,
+                             dummy_collection: ee.ImageCollection,
+                             debug: Optional[bool] = False):
+        collection = self._get_combined_sr_collection(year)
+        collection = collection.select(['B2', 'B3', 'B4', 'B8', 'B11', 'B12'])
+        
+        image_count = collection.size()
+        final_collection = ee.ImageCollection(ee.Algorithms.If(image_count.gt(0), collection, dummy_collection))
+        
+        median = final_collection.median()
+        med_diff_collection = final_collection.map(
+            lambda image: calculate_median_diff(image, median))
+        
+        # TODO: selection based on actual names
+        medoid_image = med_diff_collection.reduce(ee.Reducer.min(7))
+        medoid_image = medoid_image.select([1, 2, 3, 4, 5, 6],
+                                           LandsatComposite._band_names)
+        
+        return medoid_image\
+            .set('system:time_start', ee.Date.fromYMD(year, self.start_date.month, self.start_date.day).millis())\
+            .toUint16()
+
+    def _get_combined_sr_collection(self, year: int):
+        return self._get_sr_collection(year)
+
+    def _get_sr_collection(self, year: int):
+        if self.start_date.month > self.end_date.month:
+            start_date = ee.Date.fromYMD(
+                year - 1, self.start_date.month, self.start_date.day)
+            end_date = ee.Date.fromYMD(
+                year, self.end_date.month, self.end_date.day)
+        else:
+            start_date = ee.Date.fromYMD(
+                year, self.start_date.month, self.start_date.day)
+            end_date = ee.Date.fromYMD(
+                year, self.end_date.month, self.end_date.day)
+            
+        s2_sr = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')\
+                    .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE', self.cloud_filter))\
+                    .filterBounds(self.area_of_interest)\
+                    .filterDate(start_date, end_date)
+
+        s2_cloud_prob = ee.ImageCollection('COPERNICUS/S2_CLOUD_PROBABILITY')\
+                        .filterBounds(self.area_of_interest)\
+                        .filterDate(start_date, end_date)
+                         
+
+        # Join collections to attach cloud probability to each SR image
+        collection = self._index_join(s2_sr, s2_cloud_prob, 's2cloudless')\
+                    .map(self._preprocess_image)\
+                    .set("system:time_start", start_date.millis())
+        
+        return self._remove_images(collection)
+
+    def _preprocess_image(self, image: int):
+        image = self._add_cloud_shdw_mask(image)
+        image = self._apply_cloud_shdw_mask(image)
+        return image
+
+    def _remove_images(self, collection: ee.ImageCollection):
+        """
+        Removes images from a collection based on the given exclude criteria.
+
+        Args:
+            collection (ee.ImageCollection): The image collection to remove images from.
+
+        Returns:
+            ee.ImageCollection: The updated image collection with images removed.
+        """
+        if 'imageIds' in self.exclude:
+            exclude_list = self.exclude['imageIds']
+            for image_id in exclude_list:
+                collection = collection.filter(ee.Filter.neq(
+                    'system:index', image_id.split('/')[-1]))
+        return collection
+
+    def _index_join(self, collectionA, collectionB, property_name):
+        """
+        Joins two collections on the system:index property and attaches the second collection to the first as a band.
+        """
+        joined = ee.ImageCollection(ee.Join.saveFirst(property_name).apply(
+            primary=collectionA,
+            secondary=collectionB,
+            condition=ee.Filter.equals(
+                leftField='system:index', rightField='system:index'
+            )
+        ))
+        return joined.map(lambda image: image.addBands(ee.Image(image.get(property_name))))
+
+    def _add_cloud_bands(self, image):
+        """
+        Adds cloud bands to the image based on cloud probability and cloud mask.
+        """
+        cloud_prb = ee.Image(image.get('s2cloudless')).select('probability')
+        is_cloud = cloud_prb.gt(self.cloud_prb_thresh).rename('clouds')
+        return image.addBands(ee.Image([cloud_prb, is_cloud]))
+
+    def _add_shadow_bands(self, image):
+        """
+        Adds shadow bands to the image to mask cloud shadows.
+        """
+        not_water = image.select('SCL').neq(6)
+        dark_pixels = image.select('B8').lt(self.nir_drk_thresh * self._sr_band_scale).multiply(not_water).rename('dark_pixels')
+
+        shadow_azimuth = ee.Number(90).subtract(ee.Number(image.get('MEAN_SOLAR_AZIMUTH_ANGLE')))
+        cloud_proj = (image.select('clouds').directionalDistanceTransform(shadow_azimuth, self.cloud_prj_dist * 10)
+                    .reproject(crs=image.select(0).projection(), scale=100)
+                    .select('distance')
+                    .mask()
+                    .rename('cloud_transform'))
+
+        shadows = cloud_proj.multiply(dark_pixels).rename('shadows')
+        return image.addBands(ee.Image([dark_pixels, cloud_proj, shadows]))
+
+    def _add_cloud_shdw_mask(self, image):
+        """
+        Adds a combined cloud and shadow mask to the image.
+        """
+        image = self._add_cloud_bands(image)
+        image = self._add_shadow_bands(image)
+
+        is_cloud_shdw = image.select('clouds').add(image.select('shadows')).gt(0)
+        is_cloud_shdw = (is_cloud_shdw.focalMin(2).focalMax(self.buffer * 2 / 20)
+                       .reproject(crs=image.select([0]).projection(), scale=20)
+                       .rename('cloudmask'))
+
+        return image.addBands(is_cloud_shdw)
+
+    def _apply_cloud_shdw_mask(self, image):
+        """
+        Applies the cloud and shadow mask to the image, leaving only clear areas.
+        """
+        not_cloud_shdw = image.select('cloudmask').Not()
+        return image.select('B.*').updateMask(not_cloud_shdw)
+
+
 class LandsatComposite(ee.ImageCollection):
     """
     ### LandsatComposite class for building a Landsat surface reflectance composite for use in LandTrendr.
@@ -228,8 +417,7 @@ class LtCollection(ee.ImageCollection):
     @index.setter
     def index(self, index: str):
         assert index in self._valid_indices or index in self._valid_indices_alt, \
-            f"Index must be one of {self._valid_indices} or {
-                self._valid_indices_alt}"
+            f"Index must be one of {self._valid_indices} or {self._valid_indices_alt}"
         self._index = index
 
     @property
