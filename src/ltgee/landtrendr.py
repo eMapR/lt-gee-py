@@ -1157,3 +1157,35 @@ class LandTrendr(ee.Image):
             .connectedPixelCount()
         min_area = mmu_image.gte(ee.Number(mmu_value)).selfMask()
         return min_area.reproject(image.projection().atScale(30)).unmask()
+
+    # Function to extract vertices from LandTrendr results and stack bands
+    def getLTvertStack(lt, runParams):
+        lt = lt.select('LandTrendr')
+    
+        emptyArray = []  # Empty array to hold another array whose length will vary depending on maxSegments parameter
+        vertLabels = []  # Empty array to hold band names whose length will vary depending on maxSegments parameter
+    
+        # Loop through the maximum number of vertices in segmentation and fill empty arrays
+        for i in range(1, runParams['maxSegments'] + 2):
+            vertLabels.append("vert_" + str(i))  # Make a band name for the given vertex
+            emptyArray.append(0)  # Fill in emptyArray
+    
+        # Make an image to fill holes in result 'LandTrendr' array where vertices found are not equal to maxSegments + 1
+        zeros = ee.Image(ee.Array([emptyArray, emptyArray, emptyArray]))
+    
+        # Labels for 2 dimensions of the array that will be cast to each other in the final step of creating the vertex output
+        lbls = [['yrs_', 'src_', 'fit_'], vertLabels]
+    
+        # Slice out the 4th row, which identifies vertices
+        vmask = lt.arraySlice(0, 3, 4)
+    
+        # Create the vertex stack
+        ltVertStack = (lt.arrayMask(vmask)  # Uses the sliced-out isVert row as a mask to include only vertices
+                         .arraySlice(0, 0, 3)  # Slices out the vert year row, raw spectral row, and fitted spectral row
+                         .addBands(zeros)  # Adds the zeros matrix to ensure 7 vertex slots are represented
+                         .toArray(1)  # Concatenates the zeros matrix to the vertex data for 7 vertex slots
+                         .arraySlice(1, 0, runParams['maxSegments'] + 1)  # Truncates the columns at the max segments allowed
+                         .arrayFlatten(lbls, '')  # Flattens the 2D array into a 1D array with bands for vertices
+                       )
+    
+        return ltVertStack  # Return the stack
