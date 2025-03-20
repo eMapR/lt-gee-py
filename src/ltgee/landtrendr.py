@@ -193,7 +193,7 @@ class Sentinel2Composite(ee.ImageCollection):
 
         is_cloud_shdw = image.select('clouds').add(image.select('shadows')).gt(0)
         is_cloud_shdw = (is_cloud_shdw.focalMin(2).focalMax(self.buffer * 2 / 20)
-                       .reproject(crs=image.select([0]).projection(), scale=20)
+                       .reproject(crs=image.select([0]).projection(), scale=10)
                        .rename('cloudmask'))
 
         return image.addBands(is_cloud_shdw)
