@@ -206,6 +206,176 @@ class Sentinel2Composite(ee.ImageCollection):
         return image.select('B.*').updateMask(not_cloud_shdw)
 
 
+class LandsatCompositeTOA(ee.ImageCollection):
+    """
+    ### LandsatComposite class for building a Landsat surface reflectance composite for use in LandTrendr.
+
+    #### Args:
+        collection (ee.ImageCollection, optional):  An ee.ImageCollection of Landsat surface reflectance images. Defaults to None.
+        start_date (datetime, optional): The start date of the annual composites. Defaults to None.
+        end_date (datetime, optional): The end date of the annual composites. Defaults to None.
+        area_of_interest (ee.Geometry, optional): The area of interest for the composite. Defaults to None.
+        mask_labels (list, optional): A list of mask labels to apply to the composite. Defaults to ['cloud', 'shadow', 'snow'].
+        exclude (dict, optional): A dictionary of exclude criteria. Defaults to {}.
+        debug (bool, optional): Whether to calculate the number of clear view pixels. Defaults to False.
+    """
+    _band_names = ['B1', 'B2', 'B3', 'B4', 'B5', 'B7']
+    _mask_options = ['cloud', 'shadow', 'snow',
+                     'water', 'waterplus', 'nonforest']
+
+    def __init__(self,
+                 collection: Optional[ee.ImageCollection] = None,
+                 start_date: Optional[datetime] = None,
+                 end_date: Optional[datetime] = None,
+                 area_of_interest: Optional[ee.Geometry] = None,
+                 mask_labels: list[str] = ['cloud', 'shadow', 'snow'],
+                 exclude: dict = {},
+                 debug: bool = False):
+        if collection:
+            super().__init__(collection)
+        else:
+            assert start_date, "start_date is required"
+            assert end_date, "end_date is required"
+            assert area_of_interest, "area_of_interest is required"
+            self.start_date = start_date
+            self.end_date = end_date
+            self.area_of_interest = area_of_interest
+            self.mask_labels = mask_labels
+            self.exclude = exclude
+            super().__init__(self._build_sr_collection(debug))
+
+    @property
+    def mask_labels(self):
+        return self._mask_labels
+
+    @mask_labels.setter
+    def mask_labels(self, mask_labels: list):
+        assert all([_ in self._mask_options for _ in mask_labels]
+                   ), f"mask_labels must be a subset of {self._mask_options}"
+        self._mask_labels = mask_labels
+
+    def _build_sr_collection(self, debug: Optional[bool] = False):
+        """
+        Builds a medoid composite of Landsat surface reflectance TM-equivalent bands 1,2,3,4,5,7. 
+        This collection can be useful outside of use by LandTrendr, but is also the base for creating the input collection for LandTrendr.
+
+        Returns:
+            ee.ImageCollection: A collection where each image represents the medoid of observations per TM-equivalent surface reflectance bands 1-5 and 7, for a given year. There will be as many images as there are years in the range inclusive of the start year and end year.
+        """
+        dummy_collection = ee.ImageCollection(
+            [ee.Image([0, 0, 0, 0, 0, 0]).mask(ee.Image(0))])
+        return ee.ImageCollection(
+            [self._build_medoid_mosaic(year, dummy_collection, debug) for year in range(self.start_date.year, self.end_date.year + 1)])
+
+    def _build_medoid_mosaic(self,
+                             year: int,
+                             dummy_collection: ee.ImageCollection,
+                             debug: Optional[bool] = False):
+        collection = self._get_combined_sr_collection(year)
+        image_count = collection.size()
+        final_collection = ee.ImageCollection(ee.Algorithms.If(
+            image_count.gt(0), collection, dummy_collection))
+        if debug:
+            not_mask_count = ee.ImageCollection(
+                [count_clear_view_pixels(final_collection)])
+            if getattr(self, 'clear_pixel_count_collection', None) is not None:
+                self.clear_pixel_count_collection = self.clear_pixel_count_collection.merge(
+                    not_mask_count)
+            else:
+                self.clear_pixel_count_collection = not_mask_count
+        median = final_collection.median()
+        med_diff_collection = final_collection.map(
+            lambda image: calculate_median_diff(image, median))
+        return med_diff_collection\
+            .reduce(ee.Reducer.min(7))\
+            .select([1, 2, 3, 4, 5, 6], self._band_names)\
+            .set('system:time_start', ee.Date.fromYMD(year, self.start_date.month, self.start_date.day).millis())\
+            .toUint16()
+
+    def _get_combined_sr_collection(self, year: int):
+        lt5 = self._get_sr_collection(year, 'LT05')
+        le7 = self._get_sr_collection(year, 'LE07')
+        lc8 = self._get_sr_collection(year, 'LC08')
+        lc9 = self._get_sr_collection(year, 'LC09')
+        return lt5.merge(le7).merge(lc8).merge(lc9)
+
+    def _get_sr_collection(self, year: int, sensor: str):
+        if self.start_date.month > self.end_date.month:
+            start_date = ee.Date.fromYMD(
+                year - 1, self.start_date.month, self.start_date.day)
+            end_date = ee.Date.fromYMD(
+                year, self.end_date.month, self.end_date.day)
+        else:
+            start_date = ee.Date.fromYMD(
+                year, self.start_date.month, self.start_date.day)
+            end_date = ee.Date.fromYMD(
+                year, self.end_date.month, self.end_date.day)
+        sr_collection = ee.ImageCollection('LANDSAT/' + sensor + '/C02/T1_L2')\
+            .filterBounds(self.area_of_interest)\
+            .filterDate(start_date, end_date)\
+            .map(lambda image: self._preprocess_image(image, sensor))\
+            .set("system:time_start", start_date.millis())
+        return self._remove_images(sr_collection)
+
+    def _preprocess_image(self, image: int, sensor: str):
+        # Accounting for band shift between landsat difference landsat images
+        if sensor == 'LC08' or sensor == 'LC09':
+            dat = image.select(['SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B6', 'SR_B7'],
+                               self._band_names)
+        else:
+            dat = image.select(['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7'],
+                               self._band_names)
+        dat = self._scale_unmask_image(dat)
+        if len(self.mask_labels) > 0:
+            dat = self._apply_masks(image.select('QA_PIXEL'), dat)
+        return dat
+
+    def _scale_unmask_image(self, image: ee.Image):
+        return image.multiply(0.0000275).add(-0.2).multiply(10000).toUint16().unmask()
+
+    def _apply_masks(self, qa: ee.Image, dat: ee.Image):
+        mask = ee.Image(1)
+        # TODO: Refactor to allow dynamically allow new masks
+        for mask_label in self.mask_labels:
+            match mask_label:
+                case 'water':
+                    mask = qa.bitwiseAnd(1 << 7).eq(0).multiply(mask)
+                case 'shadow':
+                    mask = qa.bitwiseAnd(1 << 4).eq(0).multiply(mask)
+                case 'snow':
+                    mask = qa.bitwiseAnd(1 << 5).eq(0).multiply(mask)
+                case 'cloud':
+                    mask = qa.bitwiseAnd(1 << 3).eq(0).multiply(mask)
+                case 'waterplus':
+                    mask = mask.mask(water_mask(self.area_of_interest))
+                case 'nonforest':
+                    mask = mask.mask(forest_mask(self.area_of_interest))
+        return dat.mask(mask)
+
+    def _remove_images(self, collection: ee.ImageCollection):
+        """
+        Removes images from a collection based on the given exclude criteria.
+
+        Args:
+            collection (ee.ImageCollection): The image collection to remove images from.
+
+        Returns:
+            ee.ImageCollection: The updated image collection with images removed.
+        """
+        if 'imageIds' in self.exclude:
+            exclude_list = self.exclude['imageIds']
+            for image_id in exclude_list:
+                collection = collection.filter(ee.Filter.neq(
+                    'system:index', image_id.split('/')[-1]))
+
+        if 'slcOff' in self.exclude:
+            if self.exclude['slcOff'] is True:
+                collection = collection.filter(ee.Filter.And(
+                    ee.Filter.eq('SPACECRAFT_ID', 'LANDSAT_7'),
+                    ee.Filter.gt('system:time_start', 1054425600000)
+                ).Not())
+        return collection
+
 class LandsatComposite(ee.ImageCollection):
     """
     ### LandsatComposite class for building a Landsat surface reflectance composite for use in LandTrendr.
