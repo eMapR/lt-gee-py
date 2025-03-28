@@ -310,7 +310,7 @@ class LandsatCompositeTOA(ee.ImageCollection):
                 year, self.start_date.month, self.start_date.day)
             end_date = ee.Date.fromYMD(
                 year, self.end_date.month, self.end_date.day)
-        sr_collection = ee.ImageCollection('LANDSAT/' + sensor + '/C02/T1_L2')\
+        sr_collection = ee.ImageCollection('LANDSAT/' + sensor + '/C02/T1_TOA')\
             .filterBounds(self.area_of_interest)\
             .filterDate(start_date, end_date)\
             .map(lambda image: self._preprocess_image(image, sensor))\
@@ -320,10 +320,10 @@ class LandsatCompositeTOA(ee.ImageCollection):
     def _preprocess_image(self, image: int, sensor: str):
         # Accounting for band shift between landsat difference landsat images
         if sensor == 'LC08' or sensor == 'LC09':
-            dat = image.select(['SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B6', 'SR_B7'],
+            dat = image.select(['B2', 'B3', 'B4', 'B5', 'B6', 'B7'],
                                self._band_names)
         else:
-            dat = image.select(['SR_B1', 'SR_B2', 'SR_B3', 'SR_B4', 'SR_B5', 'SR_B7'],
+            dat = image.select(['B1', 'B2', 'B3', 'B4', 'B5', 'B7'],
                                self._band_names)
         dat = self._scale_unmask_image(dat)
         if len(self.mask_labels) > 0:
@@ -331,7 +331,8 @@ class LandsatCompositeTOA(ee.ImageCollection):
         return dat
 
     def _scale_unmask_image(self, image: ee.Image):
-        return image.multiply(0.0000275).add(-0.2).multiply(10000).toUint16().unmask()
+        #return image.multiply(0.0000275).add(-0.2).multiply(10000).toUint16().unmask() # From Surface Reflectance
+        return image.multiply(10000).toUint16().unmask()
 
     def _apply_masks(self, qa: ee.Image, dat: ee.Image):
         mask = ee.Image(1)
